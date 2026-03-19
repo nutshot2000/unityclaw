@@ -445,19 +445,16 @@ public static class UnityMcpBridge
         var scale = data.scale ?? new Vector3Data { x = 100, y = 1, z = 100 };
         waterObj.transform.localScale = new Vector3(scale.x, scale.y, scale.z);
         
-        // Create water material - use Sprites/Default for guaranteed transparency
-        Shader shader = Shader.Find("Sprites/Default");
-        if (shader == null) shader = Shader.Find("Standard");
-        
+        // Create material using default material as base
+        var defaultMat = GraphicsSettings.defaultRenderingMaterial;
         Material material;
-        if (shader != null)
+        if (defaultMat != null)
         {
-            material = new Material(shader);
+            material = new Material(defaultMat);
         }
         else
         {
-            // Ultimate fallback - just use default
-            material = new Material(UnityEngine.Rendering.GraphicsSettings.defaultMaterial);
+            material = new Material(Shader.Find("Standard"));
         }
         material.name = (data.name ?? "Water") + "_Mat";
         
@@ -476,7 +473,7 @@ public static class UnityMcpBridge
             "position", new Vector3Data { x = waterObj.transform.position.x, y = waterObj.transform.position.y, z = waterObj.transform.position.z },
             "scale", new Vector3Data { x = waterObj.transform.localScale.x, y = waterObj.transform.localScale.y, z = waterObj.transform.localScale.z },
             "material", material.name,
-            "shader", shader != null ? shader.name : "default"
+            "shader", material.shader != null ? material.shader.name : "Standard"
         );
     }
     
@@ -643,7 +640,7 @@ public static class UnityMcpBridge
     private static GameObject FindObject(string name, int? instanceID)
     {
         if (instanceID.HasValue)
-            return (GameObject)EditorUtility.InstanceIDToObject(instanceID.Value);
+            return (GameObject)EditorUtility.EntityIdToObject(instanceID.Value);
         if (!string.IsNullOrEmpty(name))
             return GameObject.Find(name);
         return null;
