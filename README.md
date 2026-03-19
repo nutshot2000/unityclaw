@@ -1,37 +1,27 @@
-# Unity MCP Server
+# Unity MCP Server v2.0
 
 A Model Context Protocol (MCP) server that allows AI agents to control Unity Editor remotely and query Unity documentation via RAG (Retrieval-Augmented Generation).
 
-## 🎯 Features
+## 🎯 What's New in v2.0
 
-- **Remote Unity Control** - Spawn objects, modify scenes, execute C# code
-- **Documentation RAG** - 304 chunks of Unity docs with vector search
-- **Anti-Hallucination** - AI queries docs before writing code
-- **Local Embeddings** - Uses Ollama (no API costs)
-- **Real-time Feedback** - See changes in Unity instantly
+**50+ MCP Tools** including:
+- ✅ Scene Management (load, create, save, list scenes)
+- ✅ Play Mode Control (enter, exit, pause, status)
+- ✅ Asset Management (materials, prefabs, instantiate, import)
+- ✅ Script Creation (MonoBehaviour, ScriptableObject, Editor templates)
+- ✅ Inspector Properties (get/set ANY property, invoke methods)
+- ✅ Console Logs (capture, clear, send logs)
+- ✅ Animation Control (triggers, bools, floats, state info)
+- ✅ Camera Control (position, orthographic, follow, screenshots)
+- ✅ Physics Control (time scale, raycast, overlap sphere)
+- ✅ Build System (player builds for all platforms)
+- ✅ Undo/Redo support
+- ✅ Selection Management (set, copy, paste, duplicate)
+- ✅ Editor Windows (open Game, Scene, Console, Animator, etc.)
+- ✅ Project Settings
+- ✅ Documentation RAG (304 Unity doc chunks)
 
-## 📦 What's Included
-
-```
-unity-mcp-server/
-├── UnityMcpBridge.cs          # C# script for Unity Editor
-├── src/
-│   ├── index.ts               # MCP server (15+ tools)
-│   ├── rag.ts                 # Vector search with Ollama
-│   └── ingest-docs.ts         # Document indexing
-├── docs/                      # 16 Unity documentation files
-│   ├── 01-core-gameobject.md
-│   ├── 02-physics-rigidbody.md
-│   ├── 03-input-system.md
-│   ├── ... (13 more)
-│   └── 15-xr-vr-development.md
-├── AGENT_INSTRUCTIONS.md      # Full guide for AI agents
-├── QUICK_REFERENCE.md         # Cheat sheet
-├── SYSTEM_PROMPT.md           # LLM system prompt
-└── README.md                  # This file
-```
-
-## 🚀 Quick Start
+## 📦 Installation
 
 ### 1. Unity Setup
 
@@ -40,11 +30,14 @@ Copy `UnityMcpBridge.cs` to your Unity project:
 YourProject/Assets/Editor/UnityMcpBridge.cs
 ```
 
-Start Unity - the bridge will auto-start on `http://localhost:7778`
+Start Unity - the bridge auto-starts on `http://localhost:7778`
 
 ### 2. MCP Server Setup
 
 ```bash
+# Clone or download this repo
+cd unity-mcp-server
+
 # Install dependencies
 npm install
 
@@ -72,76 +65,187 @@ Add to your `~/.openclaw/openclaw.json`:
 }
 ```
 
-Restart OpenClaw gateway:
+Restart OpenClaw:
 ```bash
 openclaw gateway restart
 ```
 
-## 🎮 Usage
+## 🎮 Usage Examples
 
-### Control Unity
-
-Ask your AI assistant:
-- "Create a red cube at position 0, 5, 0"
-- "Add a Rigidbody to the Player object"
-- "What's in the current scene?"
-
-### Query Documentation
-
-The AI automatically queries docs before writing code:
-
-```javascript
-// AI queries this first
-unity_search_docs({
-  "query": "NavMeshAgent follow player",
-  "topK": 3
-})
-
-// Then gives accurate code based on results
+### Scene Management
+```
+"Load the MainMenu scene"
+"Create a new scene called TestLevel"
+"Save the current scene"
 ```
 
-## 📚 Documentation Coverage
+### Play Mode
+```
+"Enter play mode"
+"Pause the game"
+"Exit play mode"
+"Is the game currently playing?"
+```
 
-| Category | Topics |
-|----------|--------|
-| Core | GameObject, Component, MonoBehaviour, Coroutines |
-| Physics | Rigidbody, Colliders, Raycasting, 2D Physics |
-| Input | Legacy Input, New Input System, Touch, XR |
-| UI | Canvas, UI Elements, Layout Groups, TextMeshPro |
-| Animation | Animator, Animation Clips, Blend Trees |
-| Audio | AudioSource, AudioMixer, Microphone |
-| Rendering | Materials, Lighting, Camera, Particles |
-| Data | ScriptableObjects, Events, Runtime Sets |
-| Terrain | Landscapes, Heightmaps, Trees, Water |
-| 2D | Sprite Renderer, 2D Physics, Tilemap |
-| Lighting | Shadows, Global Illumination, Light Probes |
-| Shaders | Shader Graph, ShaderLab, Compute Shaders |
-| AI | NavMesh, Pathfinding, Obstacles |
-| Networking | Netcode, Mirror, Save Systems |
-| XR/VR | XR Toolkit, VR Input, Hand Tracking |
+### Object Creation
+```
+"Create a red cube at position 0, 5, 0"
+"Spawn a sphere named 'Enemy' at 10, 0, 10"
+"Create an empty GameObject called 'SpawnPoint'"
+```
 
-**Total: 304 documentation chunks**
+### Components
+```
+"Add a Rigidbody to the Player"
+"Set the Player's Rigidbody mass to 5"
+"Get all properties on the Enemy's Animator"
+"Invoke the 'TakeDamage' method on the Boss"
+```
 
-## 🔧 Available Tools
+### Animation
+```
+"Set the 'IsRunning' bool to true on Player"
+"Trigger the 'Jump' animation on Player"
+"Set the 'Speed' float to 5.5 on Enemy"
+"What's the current animation state on Player?"
+```
 
-### Unity Control
+### Camera
+```
+"Move the camera to position 0, 10, -10"
+"Make the camera follow the Player"
+"Set the camera to orthographic with size 5"
+"Take a screenshot"
+```
+
+### Physics
+```
+"Set time scale to 0.5 for slow motion"
+"Raycast from the camera to find what the player is looking at"
+"Find all colliders within 5 units of the explosion point"
+```
+
+### Assets
+```
+"Create a red material called 'EnemyMaterial'"
+"Create a prefab from the Player object"
+"Instantiate the Enemy prefab at position 20, 0, 0"
+```
+
+### Scripts
+```
+"Create a new script called 'HealthManager'"
+"Create a ScriptableObject called 'WeaponData'"
+"Recompile all scripts"
+```
+
+### Build
+```
+"Build the game for Windows"
+"Build for WebGL to Builds/WebGL/"
+"What are the current build settings?"
+```
+
+## 📚 Documentation RAG
+
+The system includes 304 chunks of Unity documentation covering:
+
+- Core (GameObject, Component, MonoBehaviour)
+- Physics (Rigidbody, Colliders, Raycasting, 2D Physics)
+- Input (Legacy, New Input System, Touch, XR)
+- UI (Canvas, UI Elements, TextMeshPro)
+- Animation (Animator, Clips, Blend Trees)
+- Audio (AudioSource, Mixer)
+- Rendering (Materials, Lighting, Camera)
+- ScriptableObjects
+- Terrain
+- 2D Development
+- Lighting & Shadows
+- Shaders & Shader Graph
+- AI & Navigation
+- Networking
+- XR/VR
+
+**The AI automatically queries docs before writing code** to prevent hallucinations!
+
+## 🔧 Available Tools (50+)
+
+### Scene Management
 - `unity_get_hierarchy` - Get scene objects
-- `unity_spawn_object` - Create GameObjects
-- `unity_modify_object` - Change properties
-- `unity_delete_object` - Remove objects
-- `unity_add_component` - Add components
-- `unity_execute_code` - Run C# code
 - `unity_get_scene_info` - Scene metadata
-- `unity_get_selection` - Selected objects
+- `unity_load_scene` - Load a scene
+- `unity_create_scene` - Create new scene
+- `unity_save_scene` - Save current scene
+- `unity_get_scene_list` - List loaded scenes
+
+### Play Mode
+- `unity_enter_play_mode` - Start playing
+- `unity_exit_play_mode` - Stop playing
+- `unity_pause_play_mode` - Pause/unpause
+- `unity_get_play_mode_status` - Check status
+
+### Objects
+- `unity_spawn_object` - Create GameObject
+- `unity_modify_object` - Modify properties
+- `unity_delete_object` - Delete object
+- `unity_get_selection` - Get selected objects
+- `unity_set_selection` - Set selection
+- `unity_duplicate_selection` - Duplicate selected
+
+### Components
+- `unity_add_component` - Add component
+- `unity_remove_component` - Remove component
+- `unity_get_component_properties` - Get all properties
+- `unity_set_property` - Set property value
+- `unity_invoke_method` - Call method
+
+### Assets
+- `unity_create_material` - Create material
+- `unity_create_prefab` - Create prefab
+- `unity_instantiate_prefab` - Instantiate prefab
+- `unity_list_assets` - List project assets
+
+### Scripts
+- `unity_create_script` - Create C# script
+- `unity_compile_scripts` - Force recompile
+
+### Animation
+- `unity_set_animation_trigger` - Set trigger
+- `unity_set_animation_bool` - Set bool
+- `unity_set_animation_float` - Set float
+- `unity_get_animation_state` - Get state
+
+### Camera
+- `unity_set_camera_position` - Move camera
+- `unity_set_camera_orthographic` - Set ortho/perspective
+- `unity_camera_follow_target` - Follow target
+- `unity_take_screenshot` - Capture screen
+
+### Physics
+- `unity_set_time_scale` - Time scale
+- `unity_physics_raycast` - Raycast
+- `unity_physics_overlap_sphere` - Overlap sphere
+
+### Build
+- `unity_build_player` - Build game
+- `unity_get_build_settings` - Build settings
+
+### Editor
+- `unity_undo` / `unity_redo` - Undo/redo
+- `unity_open_window` - Open editor window
+- `unity_get_console_logs` - Get logs
+- `unity_clear_console` - Clear console
+- `unity_send_debug_log` - Send log
+- `unity_get_project_settings` - Project info
 
 ### Documentation
-- `unity_search_docs` - Search Unity docs via RAG
+- `unity_search_docs` - Search Unity docs
 
 ## 🛡️ Anti-Hallucination
 
-This system prevents AI hallucinations by:
+The system prevents AI hallucinations by:
 
-1. **Querying docs first** - Before writing any Unity code
+1. **Querying docs first** - Before writing Unity code
 2. **Using exact APIs** - Method names from official docs
 3. **Citing sources** - Referencing which doc the code came from
 
@@ -169,7 +273,7 @@ Built with:
 - [Model Context Protocol](https://modelcontextprotocol.io/)
 - [Unity](https://unity.com/)
 - [Ollama](https://ollama.com/)
-- [Vectra](https://github.com/Berkay-akbas/vectra) (vector database)
+- [Vectra](https://github.com/Berkay-akbas/vectra)
 
 ---
 
