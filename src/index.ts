@@ -5,11 +5,14 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { UnityDocRAG } from "./rag.js";
 
 import * as path from "path";
+import * as fs from "fs";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -295,9 +298,16 @@ const TOOLS: Tool[] = [
     }
   },
   {
-    name: "unity_list_assets",
-    description: "List assets in the project",
-    inputSchema: { type: "object", properties: {}, required: [] }
+    name: "unity_find_assets",
+    description: "Search for assets in the Unity project (like the Project window search bar)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        searchQuery: { type: "string", description: "Search query (e.g. 'Player', 't:Prefab', 't:Material')" },
+        typeFilter: { type: "string", description: "Optional asset type (e.g. 'Prefab', 'Material', 'Texture2D', 'AudioClip', 'Script')" }
+      },
+      required: ["searchQuery"]
+    }
   },
 
   // === SCRIPTS ===
@@ -594,7 +604,7 @@ async function callUnityBridge(endpoint: string, method: string = "GET", body?: 
 const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
   // Scene Management
   "unity_get_hierarchy": async () => callUnityBridge("/api/hierarchy", "GET"),
-  "unity_get_scene_info": async () => callUnityBridge("/api/scene-info", "GET"),
+  "unity_get_scene_info": async () => callUnityBridge("/api/scene/info", "GET"),
   "unity_load_scene": async (args) => callUnityBridge("/api/scene/load", "POST", args),
   "unity_create_scene": async (args) => callUnityBridge("/api/scene/create", "POST", args),
   "unity_save_scene": async (args) => callUnityBridge("/api/scene/save", "POST", args),
@@ -622,10 +632,10 @@ const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
   "unity_invoke_method": async (args) => callUnityBridge("/api/inspector/invoke-method", "POST", args),
 
   // Assets
-  "unity_create_material": async (args) => callUnityBridge("/api/asset/create-material", "POST", args),
+  "unity_create_material": async (args) => callUnityBridge("/api/material/create", "POST", args),
   "unity_create_prefab": async (args) => callUnityBridge("/api/asset/create-prefab", "POST", args),
-  "unity_instantiate_prefab": async (args) => callUnityBridge("/api/asset/instantiate-prefab", "POST", args),
-  "unity_list_assets": async () => callUnityBridge("/api/asset/list", "GET"),
+  "unity_instantiate_prefab": async (args) => callUnityBridge("/api/prefab/instantiate", "POST", args),
+  "unity_find_assets": async (args) => callUnityBridge("/api/asset/find", "POST", args),
 
   // Scripts
   "unity_create_script": async (args) => callUnityBridge("/api/script/create", "POST", args),
@@ -687,9 +697,51 @@ async function main() {
     {
       capabilities: {
         tools: {},
+        prompts: {},
       },
     }
   );
+
+  // List available prompts
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    return {
+      prompts: [
+        {
+          name: "unity_mcp_system_prompt",
+          description: "System instructions and rules for the Unity MCP Agent. Helps the model understand how to use tools properly.",
+        },
+        {
+          name: "unity_mcp_quick_reference",
+          description: "Quick reference and syntax overview for the Unity MCP.",
+        }
+      ],
+    };
+  });
+
+  // Handle prompt requests
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name } = request.params;
+    
+    if (name === "unity_mcp_system_prompt" || name === "unity_mcp_quick_reference") {
+      const fileName = name === "unity_mcp_system_prompt" ? "SYSTEM_PROMPT.md" : "QUICK_REFERENCE.md";
+      const filePath = path.join(__dirname, "..", fileName);
+      try {
+        const content = fs.readFileSync(filePath, "utf8");
+        return {
+          description: "Unity Agent Instructions",
+          messages: [
+            {
+              role: "user",
+              content: { type: "text", text: content },
+            }
+          ]
+        };
+      } catch (err) {
+        throw new Error(`Failed to read prompt file ${fileName}`);
+      }
+    }
+    throw new Error("Prompt not found");
+  });
 
   // List available tools
   server.setRequestHandler(ListToolsRequestSchema, async () => {

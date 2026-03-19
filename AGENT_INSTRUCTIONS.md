@@ -33,9 +33,13 @@ This Unity MCP (Model Context Protocol) server allows AI agents to control Unity
 | `unity_modify_object` | Change properties | `unity_modify_object({"name": "Cube", "position": {"x": 10, "y": 0, "z": 0}})` |
 | `unity_delete_object` | Remove object | `unity_delete_object({"name": "Cube"})` |
 | `unity_add_component` | Add component | `unity_add_component({"objectName": "Player", "componentType": "Rigidbody"})` |
-| `unity_execute_code` | Run C# code | `unity_execute_code({"code": "Debug.Log(\"Hello\");"})` |
+| `unity_get_component_properties` | Read component data | `unity_get_component_properties({"objectName": "Player", "componentType": "Rigidbody"})` |
+| `unity_set_property` | Modify component | `unity_set_property({"objectName": "Player", "componentType": "Rigidbody", "property": "mass", "value": "5.0"})` |
+| `unity_invoke_method` | Manipulate component | `unity_invoke_method({"objectName": "Player", "componentType": "Rigidbody", "method": "AddForce", "parameters": ["0", "15", "0"]})` |
+| `unity_create_script` | Create and compile | `unity_create_script({"name": "PlayerFollower", "template": "MonoBehaviour"})` |
 | `unity_get_scene_info` | Scene metadata | `unity_get_scene_info({})` |
 | `unity_get_selection` | Selected objects | `unity_get_selection({})` |
+| `unity_find_assets` | Search Assets by query | `unity_find_assets({"searchQuery": "Player", "typeFilter": "Prefab"})` |
 
 ### Documentation Tools
 
@@ -192,7 +196,8 @@ The RAG database includes:
 2. **Use specific terms** in queries (component names, method names)
 3. **Check multiple results** if first isn't clear
 4. **Cite sources** when providing complex solutions
-5. **Test in Unity** when possible (use `unity_execute_code`)
+5. **Read Components directly** if confused, via `unity_get_component_properties`
+6. **Use Scripts for Logic** via `unity_create_script` instead of arbitrary C# execution.
 
 ## For Future LLM Models
 

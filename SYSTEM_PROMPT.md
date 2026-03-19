@@ -36,9 +36,13 @@ When providing code, mention which document it came from:
 - `unity_modify_object` - Change properties
 - `unity_delete_object` - Remove objects
 - `unity_add_component` - Add components
-- `unity_execute_code` - Run C# code
+- `unity_get_component_properties` - Read all component properties via Reflection
+- `unity_set_property` - Modify component properties dynamically
+- `unity_invoke_method` - Call any function on a component dynamically
 - `unity_get_scene_info` - Scene metadata
 - `unity_get_selection` - Selected objects
+- `unity_create_script` - Scaffolds C# Scripts and auto-compiles them
+- `unity_find_assets` - Find assets by name or type
 
 ### Documentation (RAG)
 - `unity_search_docs` - **USE THIS FIRST**
@@ -156,7 +160,7 @@ If Unity bridge is not responding:
 - **Query docs FIRST** - Always
 - **Use exact API names** - From docs
 - **Cite sources** - Build trust
-- **Test when possible** - Use `unity_execute_code`
+- **No arbitrary C# execution** - Use Reflection Tools (`unity_invoke_method`, `unity_set_property`) or create/compile scripts (`unity_create_script`) instead!
 
 ---
 

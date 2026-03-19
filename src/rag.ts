@@ -61,11 +61,17 @@ export class UnityDocRAG {
    * Get embeddings from Local Ollama API
    */
   private async getEmbedding(text: string): Promise<number[]> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+
+    if (process.env.OLLAMA_API_KEY) {
+      headers["Authorization"] = `Bearer ${process.env.OLLAMA_API_KEY}`;
+    }
+
     const response = await fetch(`${OLLAMA_URL}/api/embeddings`, {
       method: "POST",
-      headers: { 
-        "Content-Type": "application/json"
-      },
+      headers: headers,
       body: JSON.stringify({
         model: EMBED_MODEL,
         prompt: text
@@ -142,7 +148,11 @@ export class UnityDocRAG {
    */
   async checkOllama(): Promise<boolean> {
     try {
-      const response = await fetch(`${OLLAMA_URL}/api/tags`);
+      const headers: Record<string, string> = {};
+      if (process.env.OLLAMA_API_KEY) {
+        headers["Authorization"] = `Bearer ${process.env.OLLAMA_API_KEY}`;
+      }
+      const response = await fetch(`${OLLAMA_URL}/api/tags`, { headers });
       return response.ok;
     } catch {
       return false;
@@ -186,7 +196,7 @@ export function parseUnityDoc(content: string, source: string): DocChunk[] {
   const chunks: DocChunk[] = [];
   
   // Extract code blocks (they contain API signatures)
-  const codeBlockRegex = /```csharp\n([\s\S]*?)```/g;
+  const codeBlockRegex = /```(?:csharp|cs|c#)\n([\s\S]*?)```/gi;
   let match;
   
   while ((match = codeBlockRegex.exec(content)) !== null) {
@@ -209,8 +219,8 @@ export function parseUnityDoc(content: string, source: string): DocChunk[] {
     });
   }
   
-  // Chunk the rest of the content
-  const textChunks = chunkText(content.replace(/```[\s\S]*?```/g, ""));
+  // Chunk the entire content (including code blocks) so context isn't lost
+  const textChunks = chunkText(content);
   
   for (const textChunk of textChunks) {
     if (textChunk.length > 100) {  // Only meaningful chunks

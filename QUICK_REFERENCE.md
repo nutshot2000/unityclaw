@@ -19,10 +19,21 @@ unity_spawn_object({
 })
 ```
 
-### Execute C# Code
+### Read/Modify Components
 ```javascript
-unity_execute_code({
-  "code": "GameObject.Find(\"Player\").transform.position = Vector3.zero;"
+unity_get_component_properties({
+  "objectName": "Player",
+  "componentType": "Rigidbody"
+})
+```
+
+### Invoke Component Methods
+```javascript
+unity_invoke_method({
+  "objectName": "Player",
+  "componentType": "Rigidbody",
+  "method": "AddForce",
+  "parameters": ["0", "15", "0"]
 })
 ```
 
@@ -30,6 +41,14 @@ unity_execute_code({
 ```javascript
 unity_get_scene_info({})
 unity_get_hierarchy({})
+```
+
+### Find Assets
+```javascript
+unity_find_assets({
+  "searchQuery": "Player",
+  "typeFilter": "Prefab"
+})
 ```
 
 ## 📚 Doc Search Examples

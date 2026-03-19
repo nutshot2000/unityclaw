@@ -132,7 +132,7 @@ openclaw gateway restart
 "Instantiate the Enemy prefab at position 20, 0, 0"
 ```
 
-### Scripts
+### Scripts (Auto-Compiling)
 ```
 "Create a new script called 'HealthManager'"
 "Create a ScriptableObject called 'WeaponData'"
@@ -192,18 +192,18 @@ The system includes 304 chunks of Unity documentation covering:
 - `unity_set_selection` - Set selection
 - `unity_duplicate_selection` - Duplicate selected
 
-### Components
+### Components (Reflection-Based)
 - `unity_add_component` - Add component
 - `unity_remove_component` - Remove component
-- `unity_get_component_properties` - Get all properties
-- `unity_set_property` - Set property value
-- `unity_invoke_method` - Call method
+- `unity_get_component_properties` - Get all properties statically/dynamically via Reflection
+- `unity_set_property` - Set property/field value
+- `unity_invoke_method` - Call any C# method on Component
 
 ### Assets
 - `unity_create_material` - Create material
 - `unity_create_prefab` - Create prefab
 - `unity_instantiate_prefab` - Instantiate prefab
-- `unity_list_assets` - List project assets
+- `unity_find_assets` - Find assets by name or type
 
 ### Scripts
 - `unity_create_script` - Create C# script
