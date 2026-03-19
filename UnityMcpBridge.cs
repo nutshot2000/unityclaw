@@ -445,21 +445,41 @@ public static class UnityMcpBridge
         var scale = data.scale ?? new Vector3Data { x = 100, y = 1, z = 100 };
         waterObj.transform.localScale = new Vector3(scale.x, scale.y, scale.z);
         
-        // Create water material
-        var material = new Material(Shader.Find("Water4/Example/FastBlade"));
-        if (material.shader == null)
-        {
-            // Fallback to mobile water or standard with transparency
-            material = new Material(Shader.Find("Legacy Shaders/Transparent/Diffuse"));
-        }
-        material.name = (data.name ?? "Water") + "_Mat";
-        material.color = new Color(0.2f, 0.5f, 0.8f, 0.7f); // Blue-ish transparent
+        // Create water material - try multiple shader options
+        Material material;
+        string shaderName = "Standard";
         
-        // Try to set up water reflections if possible
-        if (material.HasProperty("_ReflectionTex"))
+        // Try built-in water shaders first
+        string[] waterShaders = {
+            "Water4/Example/FastBlade",
+            "Legacy Shaders/Transparent/Diffuse",
+            "Sprites/Default"
+        };
+        
+        foreach (var sh in waterShaders)
         {
-            // Water4 specific properties would go here
+            var testMat = new Material(Shader.Find(sh));
+            if (testMat != null && testMat.shader != null)
+            {
+                shaderName = sh;
+                material = testMat;
+                break;
+            }
         }
+        
+        material = new Material(Shader.Find(shaderName));
+        material.name = (data.name ?? "Water") + "_Mat";
+        
+        // Set water-like properties
+        material.color = new Color(0.1f, 0.3f, 0.6f, 0.7f); // Blue-ish transparent
+        material.SetFloat("_Mode", 3); // Transparent mode
+        material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        material.SetInt("_ZWrite", 0);
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.DisableKeyword("_ALPHABLEND_ON");
+        material.EnableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.renderQueue = 3000;
         
         var renderer = waterObj.GetComponent<Renderer>();
         renderer.material = material;
@@ -472,7 +492,8 @@ public static class UnityMcpBridge
             "instanceID", waterObj.GetInstanceID(),
             "position", new Vector3Data { x = waterObj.transform.position.x, y = waterObj.transform.position.y, z = waterObj.transform.position.z },
             "scale", new Vector3Data { x = waterObj.transform.localScale.x, y = waterObj.transform.localScale.y, z = waterObj.transform.localScale.z },
-            "material", material.name
+            "material", material.name,
+            "shader", shaderName
         );
     }
     
