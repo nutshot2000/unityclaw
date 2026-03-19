@@ -260,15 +260,21 @@ public static class UnityMcpBridge
         var rot = data.rotation ?? new Vector3Data();
         obj.transform.rotation = Quaternion.Euler(rot.x, rot.y, rot.z);
         
-        // Scale - default (1,1,1) for primitives, (0,0,0) warning for empty
-        if (data.scale != null)
+        // Scale - check if scale was actually provided in JSON
+        // JsonUtility can't distinguish between "scale not provided" and "scale is (0,0,0)"
+        // So we check if "scale" keyword exists in raw JSON
+        bool hasScaleInJson = body.Contains("\"scale\"");
+        
+        if (hasScaleInJson && data.scale != null)
         {
             obj.transform.localScale = new Vector3(data.scale.x, data.scale.y, data.scale.z);
         }
         else if (!string.IsNullOrEmpty(data.primitive) && data.primitive.ToLower() != "empty")
         {
-            obj.transform.localScale = new Vector3(1, 1, 1); // Primitives default to (1,1,1)
+            // Primitives default to (1,1,1) - this is the fix!
+            obj.transform.localScale = new Vector3(1, 1, 1);
         }
+        // Empty GameObjects can have (0,0,0) scale - user must set explicitly
         
         // Parent
         if (!string.IsNullOrEmpty(data.parent))
