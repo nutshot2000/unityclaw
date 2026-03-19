@@ -1,0 +1,29 @@
+{
+  "name": "unity-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP Server for Unity Editor integration with OpenClaw",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "vectra": "^0.12.3",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "unity",
+    "openclaw",
+    "ai"
+  ],
+  "author": "Firebat",
+  "license": "MIT"
+}

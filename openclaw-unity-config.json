@@ -1,0 +1,16 @@
+{
+  "_comment": "Add this to your ~/.openclaw/openclaw.json mcpServers section",
+  "mcpServers": {
+    "unity_editor": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\batti\\.openclaw\\workspace\\unity-mcp-server\\dist\\index.js"
+      ],
+      "env": {
+        "OLLAMA_API_KEY": "${OLLAMA_API_KEY}",
+        "EMBED_MODEL": "nomic-embed-text:cloud",
+        "UNITY_BRIDGE_URL": "http://localhost:7778"
+      }
+    }
+  }
+}

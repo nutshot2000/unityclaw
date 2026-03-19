@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "unity_editor": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\batti\\.openclaw\\workspace\\unity-mcp-server\\dist\\index.js"
+      ],
+      "env": {
+        "OLLAMA_API_KEY": "YOUR_OLLAMA_CLOUD_API_KEY_HERE",
+        "EMBED_MODEL": "nomic-embed-text:cloud",
+        "UNITY_BRIDGE_URL": "http://localhost:7778"
+      }
+    }
+  },
+  "models": {
+    "default": "ollama/kimi-k2.5:cloud"
+  }
+}
