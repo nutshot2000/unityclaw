@@ -1,6 +1,6 @@
-// Unity MCP Bridge
-// Place this file in: Assets/Editor/UnityMcpBridge.cs
-// This script starts an HTTP server that allows OpenClaw to control Unity Editor
+// Unity MCP Bridge - Clean, Fixed Version v3.0
+// Place in: Assets/Editor/UnityMcpBridge.cs
+// Controls Unity Editor via HTTP API on localhost:7778
 
 using System;
 using System.Collections.Generic;
@@ -8,10 +8,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using UnityEditor;
-using UnityEditor.Compilation;
-using UnityEditor.SceneManagement;
 using UnityEngine;
 
 [InitializeOnLoad]
@@ -21,9 +18,7 @@ public static class UnityMcpBridge
     private static Thread listenerThread;
     private static bool isRunning = false;
     private static readonly int PORT = 7778;
-    private static readonly string URL = $"http://localhost:{PORT}/";
-    
-    // Thread-safe queue for main thread execution
+    private static readonly string URL = "http://localhost:" + PORT + "/";
     private static readonly Queue<Action> mainThreadActions = new Queue<Action>();
     private static readonly object queueLock = new object();
     
@@ -37,23 +32,20 @@ public static class UnityMcpBridge
     private static void StartServer()
     {
         if (isRunning) return;
-        
         try
         {
             httpListener = new HttpListener();
             httpListener.Prefixes.Add(URL);
             httpListener.Start();
-            
             isRunning = true;
-            listenerThread = new Thread(new ThreadStart(ListenLoop));
+            listenerThread = new Thread(ListenLoop);
             listenerThread.IsBackground = true;
             listenerThread.Start();
-            
-            Debug.Log($"[<color=cyan>MCP Bridge</color>] Server started on {URL}");
+            Debug.Log("[MCP] Server started on " + URL);
         }
         catch (Exception ex)
         {
-            Debug.LogError($"[<color=red>MCP Bridge</color>] Failed to start: {ex.Message}");
+            Debug.LogError("[MCP] Failed to start: " + ex.Message);
         }
     }
     
@@ -61,19 +53,17 @@ public static class UnityMcpBridge
     private static void StopServer()
     {
         if (!isRunning) return;
-        
         isRunning = false;
-        httpListener?.Stop();
-        httpListener?.Close();
-        
-        Debug.Log("[<color=cyan>MCP Bridge</color>] Server stopped");
+        try { httpListener?.Stop(); } catch { }
+        try { httpListener?.Close(); } catch { }
+        Debug.Log("[MCP] Server stopped");
     }
     
     [MenuItem("Tools/MCP Bridge/Restart Server")]
     private static void RestartServer()
     {
         StopServer();
-        System.Threading.Thread.Sleep(100);
+        Thread.Sleep(100);
         StartServer();
     }
     
@@ -83,17 +73,15 @@ public static class UnityMcpBridge
         {
             while (mainThreadActions.Count > 0)
             {
-                mainThreadActions.Dequeue()?.Invoke();
+                try { mainThreadActions.Dequeue()?.Invoke(); }
+                catch (Exception ex) { Debug.LogError("[MCP] Queue error: " + ex.Message); }
             }
         }
     }
     
     private static void EnqueueOnMainThread(Action action)
     {
-        lock (queueLock)
-        {
-            mainThreadActions.Enqueue(action);
-        }
+        lock (queueLock) { mainThreadActions.Enqueue(action); }
     }
     
     private static void ListenLoop()
@@ -103,1141 +91,551 @@ public static class UnityMcpBridge
             try
             {
                 var context = httpListener.GetContext();
-                _ = Task.Run(() => HandleRequest(context));
+                ThreadPool.QueueUserWorkItem(HandleRequest, context);
             }
-            catch (Exception ex)
-            {
-                if (isRunning)
-                {
-                    Debug.LogError($"[<color=red>MCP Bridge</color>] Listen error: {ex.Message}");
-                }
-            }
+            catch (HttpListenerException) { break; }
+            catch (Exception ex) { if (isRunning) Debug.LogError("[MCP] Listen: " + ex.Message); }
         }
     }
     
-    private static async Task HandleRequest(HttpListenerContext context)
+    private static void HandleRequest(object state)
     {
-        var request = context.Request;
+        var context = (HttpListenerContext)state;
         var response = context.Response;
-        
-        string path = request.Url.AbsolutePath;
-        string method = request.HttpMethod;
-        string body = "";
-        
-        if (method == "POST" && request.HasEntityBody)
-        {
-            using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
-            {
-                body = await reader.ReadToEndAsync();
-            }
-        }
-        
-        string jsonResponse = "";
-        int statusCode = 200;
+        string result = "{\"error\":\"Internal error\"}";
+        int statusCode = 500;
         
         try
         {
-            switch (path)
+            string path = context.Request.Url.AbsolutePath;
+            string body = "";
+            if (context.Request.HasEntityBody)
             {
-                case "/api/hierarchy":
-                    jsonResponse = await GetHierarchy();
-                    break;
-                    
-                case "/api/selection":
-                    jsonResponse = await GetSelection();
-                    break;
-                    
-                case "/api/scene/info":
-                    jsonResponse = await GetSceneInfo();
-                    break;
-                    
-                case "/api/spawn":
-                    jsonResponse = await SpawnObject(body);
-                    break;
-                    
-                case "/api/modify":
-                    jsonResponse = await ModifyObject(body);
-                    break;
-                    
-                case "/api/delete":
-                    jsonResponse = await DeleteObject(body);
-                    break;
-                    
-                case "/api/component/add":
-                    jsonResponse = await AddComponent(body);
-                    break;
-                    
-                case "/api/component/remove":
-                    jsonResponse = await RemoveComponent(body);
-                    break;
-                    
-                case "/api/execute":
-                    jsonResponse = await ExecuteCode(body);
-                    break;
-                    
-                case "/api/material/create":
-                    jsonResponse = await CreateMaterial(body);
-                    break;
-                    
-                case "/api/prefab/instantiate":
-                    jsonResponse = await InstantiatePrefab(body);
-                    break;
-                    
-                case "/api/asset/find":
-                    jsonResponse = await FindAssets(body);
-                    break;
-                    
-                case "/api/console/clear":
-                    jsonResponse = await ClearConsole();
-                    break;
-                    
-                case "/api/undo":
-                    jsonResponse = await PerformUndoOperation();
-                    break;
-                    
-                case "/api/playmode/enter":
-                    jsonResponse = await EnterPlayMode();
-                    break;
-                    
-                case "/api/playmode/exit":
-                    jsonResponse = await ExitPlayMode();
-                    break;
-                    
-                case "/api/playmode/pause":
-                    jsonResponse = await PausePlayMode(body);
-                    break;
-                    
-                case "/api/playmode/status":
-                    jsonResponse = await GetPlayModeStatus();
-                    break;
-                    
-                case "/api/scene/load":
-                    jsonResponse = await LoadScene(body);
-                    break;
-                    
-                case "/api/scene/list":
-                    jsonResponse = await GetSceneList();
-                    break;
-                    
-                case "/api/script/compile":
-                    jsonResponse = await CompileScripts();
-                    break;
-                    
-                case "/api/physics/set-time-scale":
-                    jsonResponse = await SetTimeScale(body);
-                    break;
-                    
-                case "/api/camera/set-position":
-                    jsonResponse = await SetCameraPosition(body);
-                    break;
-                    
-                case "/api/camera/set-orthographic":
-                    jsonResponse = await SetCameraOrthographic(body);
-                    break;
-                    
-                case "/api/window/open":
-                    jsonResponse = await OpenWindow(body);
-                    break;
-                    
-                case "/api/console/send":
-                    jsonResponse = await SendDebugLog(body);
-                    break;
-                    
-                case "/api/inspector/get-properties":
-                    jsonResponse = await GetComponentProperties(body);
-                    break;
-                    
-                case "/api/inspector/set-property":
-                    jsonResponse = await SetComponentProperty(body);
-                    break;
-                    
-                case "/api/inspector/invoke-method":
-                    jsonResponse = await InvokeComponentMethod(body);
-                    break;
-                    
-                case "/api/script/create":
-                    jsonResponse = await CreateScript(body);
-                    break;
-                    
-                default:
-                    statusCode = 501;
-                    jsonResponse = $"{{\"error\":\"Endpoint not yet implemented in UnityMcpBridge.cs: {path}. You need to build this feature!\"}}";
-                    break;
+                using (var reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding))
+                    body = reader.ReadToEnd();
+            }
+            Debug.Log("[MCP] " + context.Request.HttpMethod + " " + path);
+            
+            var done = new ManualResetEvent(false);
+            string asyncResult = null;
+            
+            EnqueueOnMainThread(() =>
+            {
+                try { asyncResult = ProcessRequest(path, body); }
+                catch (Exception ex) { asyncResult = "{\"error\":\"" + EscapeJson(ex.Message) + "\"}"; }
+                done.Set();
+            });
+            
+            if (done.WaitOne(5000))
+            {
+                result = asyncResult ?? "{}";
+                statusCode = 200;
+            }
+            else
+            {
+                result = "{\"error\":\"timeout\"}";
+                statusCode = 500;
             }
         }
         catch (Exception ex)
         {
-            statusCode = 500;
-            jsonResponse = $"{{\"error\":\"{EscapeJson(ex.Message)}\"}}";
-            Debug.LogError($"[<color=red>MCP Bridge</color>] Error: {ex}");
+            result = "{\"error\":\"" + EscapeJson(ex.Message) + "\"}";
+            Debug.LogError("[MCP] Request error: " + ex.Message);
         }
-        
-        byte[] buffer = Encoding.UTF8.GetBytes(jsonResponse);
-        response.ContentType = "application/json";
-        response.ContentLength64 = buffer.Length;
-        response.StatusCode = statusCode;
-        await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-        response.Close();
-    }
-    
-    // ==================== API HANDLERS ====================
-    
-    private static Task<string> GetHierarchy()
-    {
-        var tcs = new TaskCompletionSource<string>();
-        
-        EnqueueOnMainThread(() =>
+        finally
         {
             try
             {
-                var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-                var rootObjects = scene.GetRootGameObjects();
-                
-                var hierarchy = new List<object>();
-                foreach (var obj in rootObjects)
-                {
-                    hierarchy.Add(SerializeGameObject(obj, true));
-                }
-                
-                tcs.SetResult(ToJson(new { scene = scene.name, path = scene.path, objects = hierarchy }));
+                byte[] buffer = Encoding.UTF8.GetBytes(result);
+                response.ContentType = "application/json";
+                response.ContentLength64 = buffer.Length;
+                response.StatusCode = statusCode;
+                response.OutputStream.Write(buffer, 0, buffer.Length);
+                response.Close();
             }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
-        
-        return tcs.Task;
+            catch { }
+        }
     }
     
-    private static Task<string> GetSelection()
+    private static string ProcessRequest(string path, string body)
     {
-        var tcs = new TaskCompletionSource<string>();
+        // Core endpoints
+        if (path == "/api/hierarchy") return GetHierarchy();
+        if (path == "/api/selection") return GetSelection();
+        if (path == "/api/scene-info") return GetSceneInfo();
         
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                var selected = new List<object>();
-                foreach (var obj in Selection.gameObjects)
-                {
-                    selected.Add(SerializeGameObject(obj, true));
-                }
-                
-                tcs.SetResult(ToJson(new { count = selected.Count, objects = selected }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+        // Object operations
+        if (path == "/api/spawn") return SpawnObject(body);
+        if (path == "/api/modify") return ModifyObject(body);
+        if (path == "/api/delete") return DeleteObject(body);
+        if (path == "/api/duplicate") return DuplicateObject(body);
         
-        return tcs.Task;
+        // Components
+        if (path == "/api/add-component") return AddComponent(body);
+        if (path == "/api/remove-component") return RemoveComponent(body);
+        if (path == "/api/get-components") return GetComponents(body);
+        if (path == "/api/set-material") return SetMaterial(body);
+        
+        // Materials
+        if (path == "/api/create-material") return CreateMaterial(body);
+        if (path == "/api/create-water") return CreateWater(body);
+        
+        // Camera
+        if (path == "/api/camera-move") return MoveCamera(body);
+        if (path == "/api/camera-look-at") return CameraLookAt(body);
+        
+        // Lights
+        if (path == "/api/create-light") return CreateLight(body);
+        
+        // Play mode
+        if (path == "/api/play") return SetPlayMode(true);
+        if (path == "/api/stop") return SetPlayMode(false);
+        if (path == "/api/pause") return TogglePause();
+        
+        // Console
+        if (path == "/api/clear-console") { Debug.ClearDeveloperConsole(); return J("{success", true, "}"); }
+        
+        return "{\"error\":\"Unknown endpoint: " + path + "\"}";
     }
     
-    private static Task<string> GetSceneInfo()
+    // ==================== HIERARCHY & SCENE ====================
+    
+    private static string GetHierarchy()
     {
-        var tcs = new TaskCompletionSource<string>();
-        
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
-                tcs.SetResult(ToJson(new 
-                { 
-                    name = scene.name, 
-                    path = scene.path,
-                    rootCount = scene.rootCount,
-                    isDirty = scene.isDirty,
-                    isLoaded = scene.isLoaded
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
-        
-        return tcs.Task;
+        var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+        var rootObjects = scene.GetRootGameObjects();
+        var objects = new List<object>();
+        foreach (var obj in rootObjects) objects.Add(SerializeGameObject(obj));
+        return J(
+            "scene", scene.name,
+            "path", scene.path,
+            "objectCount", objects.Count,
+            "objects", objects
+        );
     }
     
-    private static Task<string> SpawnObject(string body)
+    private static string GetSelection()
     {
-        var tcs = new TaskCompletionSource<string>();
+        var selected = new List<object>();
+        foreach (var obj in Selection.gameObjects) selected.Add(SerializeGameObject(obj, true));
+        return J("count", selected.Count, "objects", selected);
+    }
+    
+    private static string GetSceneInfo()
+    {
+        var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+        return J(
+            "name", scene.name,
+            "path", scene.path,
+            "rootCount", scene.rootCount,
+            "isDirty", scene.isDirty,
+            "isPlaying", EditorApplication.isPlaying,
+            "isPaused", EditorApplication.isPaused
+        );
+    }
+    
+    // ==================== OBJECT OPERATIONS ====================
+    
+    private static string SpawnObject(string body)
+    {
         var data = JsonUtility.FromJson<SpawnData>(body);
         
-        EnqueueOnMainThread(() =>
+        GameObject obj;
+        if (string.IsNullOrEmpty(data.primitive) || data.primitive.ToLower() == "empty")
         {
-            try
-            {
-                GameObject obj;
-                
-                if (!string.IsNullOrEmpty(data.primitive))
-                {
-                    obj = GameObject.CreatePrimitive(GetPrimitiveType(data.primitive));
-                }
-                else
-                {
-                    obj = new GameObject();
-                }
-                
-                obj.name = data.name;
-                
-                // Set transform
-                if (data.position != null)
-                    obj.transform.position = data.position.ToVector3();
-                if (data.rotation != null)
-                    obj.transform.rotation = Quaternion.Euler(data.rotation.ToVector3());
-                if (data.scale != null)
-                    obj.transform.localScale = data.scale.ToVector3();
-                
-                // Set parent
-                if (!string.IsNullOrEmpty(data.parent))
-                {
-                    var parent = GameObject.Find(data.parent);
-                    if (parent != null)
-                        obj.transform.SetParent(parent.transform);
-                }
-                
-                Undo.RegisterCreatedObjectUndo(obj, "MCP Spawn Object");
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    name = obj.name,
-                    instanceID = obj.GetInstanceID(),
-                    path = GetGameObjectPath(obj)
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+            obj = new GameObject();
+        }
+        else
+        {
+            obj = GameObject.CreatePrimitive(GetPrimitiveType(data.primitive));
+        }
         
-        return tcs.Task;
+        obj.name = string.IsNullOrEmpty(data.name) ? (string.IsNullOrEmpty(data.primitive) ? "GameObject" : data.primitive) : data.name;
+        
+        // Position - default (0,0,0)
+        var pos = data.position ?? new Vector3Data();
+        obj.transform.position = new Vector3(pos.x, pos.y, pos.z);
+        
+        // Rotation - default (0,0,0)
+        var rot = data.rotation ?? new Vector3Data();
+        obj.transform.rotation = Quaternion.Euler(rot.x, rot.y, rot.z);
+        
+        // Scale - default (1,1,1) for primitives, (0,0,0) warning for empty
+        if (data.scale != null)
+        {
+            obj.transform.localScale = new Vector3(data.scale.x, data.scale.y, data.scale.z);
+        }
+        else if (!string.IsNullOrEmpty(data.primitive) && data.primitive.ToLower() != "empty")
+        {
+            obj.transform.localScale = new Vector3(1, 1, 1); // Primitives default to (1,1,1)
+        }
+        
+        // Parent
+        if (!string.IsNullOrEmpty(data.parent))
+        {
+            var parent = GameObject.Find(data.parent);
+            if (parent != null) obj.transform.SetParent(parent.transform);
+        }
+        
+        Undo.RegisterCreatedObjectUndo(obj, "MCP Spawn");
+        
+        return J(
+            "success", true,
+            "name", obj.name,
+            "instanceID", obj.GetInstanceID(),
+            "position", new Vector3Data { x = obj.transform.position.x, y = obj.transform.position.y, z = obj.transform.position.z },
+            "scale", new Vector3Data { x = obj.transform.localScale.x, y = obj.transform.localScale.y, z = obj.transform.localScale.z },
+            "path", GetGameObjectPath(obj)
+        );
     }
     
-    private static Task<string> ModifyObject(string body)
+    private static string ModifyObject(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
         var data = JsonUtility.FromJson<ModifyData>(body);
+        var obj = FindObject(data.name, data.instanceID);
+        if (obj == null) return J("error", "Object not found: " + data.name);
         
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                GameObject obj = FindObject(data.name, data.instanceID);
-                if (obj == null)
-                    throw new Exception($"Object not found: {data.name ?? data.instanceID.ToString()}");
-                
-                // Record undo
-                Undo.RecordObject(obj, "MCP Modify Object");
-                
-                // Apply changes
-                if (!string.IsNullOrEmpty(data.newName))
-                    obj.name = data.newName;
-                if (data.active.HasValue)
-                    obj.SetActive(data.active.Value);
-                if (data.position != null)
-                    obj.transform.position = data.position.ToVector3();
-                if (data.rotation != null)
-                    obj.transform.rotation = Quaternion.Euler(data.rotation.ToVector3());
-                if (data.scale != null)
-                    obj.transform.localScale = data.scale.ToVector3();
-                if (!string.IsNullOrEmpty(data.tag))
-                    obj.tag = data.tag;
-                if (data.layer.HasValue)
-                    obj.layer = data.layer.Value;
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    name = obj.name,
-                    instanceID = obj.GetInstanceID()
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+        Undo.RecordObject(obj.transform, "MCP Modify");
         
-        return tcs.Task;
+        if (data.newName != null) obj.name = data.newName;
+        if (data.active.HasValue) obj.SetActive(data.active.Value);
+        if (data.position != null) obj.transform.position = new Vector3(data.position.x, data.position.y, data.position.z);
+        if (data.rotation != null) obj.transform.rotation = Quaternion.Euler(data.rotation.x, data.rotation.y, data.rotation.z);
+        if (data.scale != null) obj.transform.localScale = new Vector3(data.scale.x, data.scale.y, data.scale.z);
+        
+        return J(
+            "success", true,
+            "name", obj.name,
+            "position", new Vector3Data { x = obj.transform.position.x, y = obj.transform.position.y, z = obj.transform.position.z },
+            "rotation", new Vector3Data { x = obj.transform.eulerAngles.x, y = obj.transform.eulerAngles.y, z = obj.transform.eulerAngles.z },
+            "scale", new Vector3Data { x = obj.transform.localScale.x, y = obj.transform.localScale.y, z = obj.transform.localScale.z }
+        );
     }
     
-    private static Task<string> DeleteObject(string body)
+    private static string DeleteObject(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
         var data = JsonUtility.FromJson<DeleteData>(body);
-        
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                GameObject obj = FindObject(data.name, data.instanceID);
-                if (obj == null)
-                    throw new Exception($"Object not found: {data.name ?? data.instanceID.ToString()}");
-                
-                Undo.DestroyObjectImmediate(obj);
-                
-                tcs.SetResult(ToJson(new { success = true, deleted = data.name ?? $"ID:{data.instanceID}" }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
-        
-        return tcs.Task;
+        var obj = FindObject(data.name, data.instanceID);
+        if (obj == null) return J("error", "Object not found: " + data.name);
+        Undo.DestroyObjectImmediate(obj);
+        return J("success", true, "name", data.name);
     }
     
-    private static Task<string> AddComponent(string body)
+    private static string DuplicateObject(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
+        var data = JsonUtility.FromJson<DeleteData>(body);
+        var original = FindObject(data.name, data.instanceID);
+        if (original == null) return J("error", "Object not found: " + data.name);
+        var duplicate = UnityEngine.Object.Instantiate(original);
+        duplicate.name = original.name + " (1)";
+        Undo.RegisterCreatedObjectUndo(duplicate, "MCP Duplicate");
+        return J(
+            "success", true,
+            "name", duplicate.name,
+            "instanceID", duplicate.GetInstanceID()
+        );
+    }
+    
+    // ==================== COMPONENTS ====================
+    
+    private static string AddComponent(string body)
+    {
         var data = JsonUtility.FromJson<ComponentData>(body);
+        var obj = FindObject(data.objectName, data.instanceID);
+        if (obj == null) return J("error", "Object not found: " + data.objectName);
         
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                GameObject obj = FindObject(data.objectName, data.instanceID);
-                if (obj == null)
-                    throw new Exception($"Object not found: {data.objectName ?? data.instanceID.ToString()}");
-                
-                var type = GetTypeByName(data.componentType);
-                if (type == null)
-                    throw new Exception($"Component type not found: {data.componentType}");
-                
-                Undo.RecordObject(obj, "MCP Add Component");
-                var component = obj.AddComponent(type);
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    component = data.componentType,
-                    instanceID = component.GetInstanceID()
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+        var type = GetTypeByName(data.componentType);
+        if (type == null) return J("error", "Component type not found: " + data.componentType);
         
-        return tcs.Task;
+        var component = obj.AddComponent(type);
+        return J("success", true, "component", data.componentType, "instanceID", component.GetInstanceID());
     }
     
-    private static Task<string> RemoveComponent(string body)
+    private static string RemoveComponent(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
         var data = JsonUtility.FromJson<ComponentData>(body);
+        var obj = FindObject(data.objectName, data.instanceID);
+        if (obj == null) return J("error", "Object not found: " + data.objectName);
         
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                GameObject obj = FindObject(data.objectName, data.instanceID);
-                if (obj == null)
-                    throw new Exception($"Object not found: {data.objectName ?? data.instanceID.ToString()}");
-                
-                var type = GetTypeByName(data.componentType);
-                if (type == null)
-                    throw new Exception($"Component type not found: {data.componentType}");
-                
-                var component = obj.GetComponent(type);
-                if (component == null)
-                    throw new Exception($"Component {data.componentType} not found on {obj.name}");
-                
-                Undo.DestroyObjectImmediate(component);
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    removed = data.componentType 
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+        var type = GetTypeByName(data.componentType);
+        if (type == null) return J("error", "Component type not found: " + data.componentType);
         
-        return tcs.Task;
+        var component = obj.GetComponent(type);
+        if (component == null) return J("error", "Component not found on object");
+        
+        Undo.DestroyObjectImmediate(component);
+        return J("success", true);
     }
     
-    private static Task<string> ExecuteCode(string body)
+    private static string GetComponents(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<ExecuteData>(body);
+        var data = JsonUtility.FromJson<ComponentData>(body);
+        var obj = FindObject(data.objectName, data.instanceID);
+        if (obj == null) return J("error", "Object not found: " + data.objectName);
         
-        EnqueueOnMainThread(() =>
+        var components = new List<object>();
+        foreach (var comp in obj.GetComponents<Component>())
         {
-            try
-            {
-                // WARNING: This executes arbitrary C# code
-                // For security, we compile and execute in a limited context
-                var result = ExecuteCSharpCode(data.code);
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    result = result,
-                    warning = "Code execution is limited for security"
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
-        
-        return tcs.Task;
+            components.Add(new Dictionary<string, object> {
+                ["type"] = comp.GetType().Name,
+                ["instanceID"] = comp.GetInstanceID()
+            });
+        }
+        return J("objectName", obj.name, "components", components);
     }
     
-    private static Task<string> CreateMaterial(string body)
+    private static string SetMaterial(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
+        var data = JsonUtility.FromJson<SetMaterialData>(body);
+        var obj = FindObject(data.objectName, data.instanceID);
+        if (obj == null) return J("error", "Object not found: " + data.objectName);
+        
+        var renderer = obj.GetComponent<Renderer>();
+        if (renderer == null) return J("error", "Object has no renderer");
+        
+        var material = new Material(Shader.Find(data.shader ?? "Standard"));
+        material.name = data.name ?? "Material";
+        
+        if (data.color != null)
+            material.color = new Color(data.color.r, data.color.g, data.color.b, data.color.a);
+        
+        renderer.material = material;
+        Undo.RegisterCreatedObjectUndo(material, "MCP Create Material");
+        
+        return J("success", true, "material", material.name);
+    }
+    
+    // ==================== MATERIALS & WATER ====================
+    
+    private static string CreateMaterial(string body)
+    {
         var data = JsonUtility.FromJson<MaterialData>(body);
+        var material = new Material(Shader.Find(data.shader ?? "Standard"));
+        material.name = data.name ?? "NewMaterial";
         
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                string shaderName = data.shader ?? "Standard";
-                var shader = Shader.Find(shaderName);
-                if (shader == null)
-                    throw new Exception($"Shader not found: {shaderName}");
-                
-                var material = new Material(shader);
-                material.name = data.name;
-                
-                if (data.color != null)
-                {
-                    material.color = data.color.ToColor();
-                }
-                
-                string path = $"Assets/{data.name}.mat";
-                AssetDatabase.CreateAsset(material, path);
-                AssetDatabase.SaveAssets();
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    name = material.name,
-                    path = path,
-                    shader = shaderName
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+        if (data.color != null)
+            material.color = new Color(data.color.r, data.color.g, data.color.b, data.color.a);
         
-        return tcs.Task;
+        var path = "Assets/" + material.name + ".mat";
+        AssetDatabase.CreateAsset(material, path);
+        AssetDatabase.SaveAssets();
+        
+        return J("success", true, "path", path, "name", material.name);
     }
     
-    private static Task<string> InstantiatePrefab(string body)
+    private static string CreateWater(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<PrefabData>(body);
+        var data = JsonUtility.FromJson<WaterData>(body);
         
-        EnqueueOnMainThread(() =>
+        // Create water plane
+        var waterObj = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        waterObj.name = data.name ?? "Water";
+        
+        // Position
+        var pos = data.position ?? new Vector3Data { y = 0 };
+        waterObj.transform.position = new Vector3(pos.x, pos.y, pos.z);
+        
+        // Scale - water should be large
+        var scale = data.scale ?? new Vector3Data { x = 100, y = 1, z = 100 };
+        waterObj.transform.localScale = new Vector3(scale.x, scale.y, scale.z);
+        
+        // Create water material
+        var material = new Material(Shader.Find("Water4/Example/FastBlade"));
+        if (material.shader == null)
         {
-            try
-            {
-                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(data.path);
-                if (prefab == null)
-                    throw new Exception($"Prefab not found: {data.path}");
-                
-                Vector3 position = data.position?.ToVector3() ?? Vector3.zero;
-                var instance = PrefabUtility.InstantiatePrefab(prefab) as GameObject;
-                instance.transform.position = position;
-                
-                Undo.RegisterCreatedObjectUndo(instance, "MCP Instantiate Prefab");
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    name = instance.name,
-                    instanceID = instance.GetInstanceID(),
-                    position = position
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+            // Fallback to mobile water or standard with transparency
+            material = new Material(Shader.Find("Legacy Shaders/Transparent/Diffuse"));
+        }
+        material.name = (data.name ?? "Water") + "_Mat";
+        material.color = new Color(0.2f, 0.5f, 0.8f, 0.7f); // Blue-ish transparent
         
-        return tcs.Task;
-    }
-
-    private static Task<string> FindAssets(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<FindAssetsData>(body);
-        
-        EnqueueOnMainThread(() =>
+        // Try to set up water reflections if possible
+        if (material.HasProperty("_ReflectionTex"))
         {
-            try
-            {
-                string searchFilter = data.searchQuery;
-                if (!string.IsNullOrEmpty(data.typeFilter))
-                {
-                    searchFilter += $" t:{data.typeFilter}";
-                }
-                
-                string[] guids = AssetDatabase.FindAssets(searchFilter);
-                var assets = new List<object>();
-                
-                // Limit to 50 to avoid massive JSON payloads crashing the bridge
-                int limit = Mathf.Min(guids.Length, 50);
-                for (int i = 0; i < limit; i++)
-                {
-                    string path = AssetDatabase.GUIDToAssetPath(guids[i]);
-                    assets.Add(new {
-                        guid = guids[i],
-                        path = path,
-                        name = System.IO.Path.GetFileNameWithoutExtension(path)
-                    });
-                }
-                
-                tcs.SetResult(ToJson(new 
-                { 
-                    success = true, 
-                    totalFound = guids.Length,
-                    returned = limit,
-                    assets = assets 
-                }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+            // Water4 specific properties would go here
+        }
         
-        return tcs.Task;
+        var renderer = waterObj.GetComponent<Renderer>();
+        renderer.material = material;
+        
+        Undo.RegisterCreatedObjectUndo(waterObj, "MCP Create Water");
+        
+        return J(
+            "success", true,
+            "name", waterObj.name,
+            "instanceID", waterObj.GetInstanceID(),
+            "position", new Vector3Data { x = waterObj.transform.position.x, y = waterObj.transform.position.y, z = waterObj.transform.position.z },
+            "scale", new Vector3Data { x = waterObj.transform.localScale.x, y = waterObj.transform.localScale.y, z = waterObj.transform.localScale.z },
+            "material", material.name
+        );
     }
     
-    private static Task<string> ClearConsole()
+    // ==================== CAMERA ====================
+    
+    private static string MoveCamera(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
+        var data = JsonUtility.FromJson<CameraData>(body);
+        var camera = Camera.main;
+        if (camera == null) return J("error", "No main camera found");
         
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                var logEntries = System.Type.GetType("UnityEditor.LogEntries,UnityEditor");
-                var clearMethod = logEntries?.GetMethod("Clear");
-                clearMethod?.Invoke(null, null);
-                
-                tcs.SetResult(ToJson(new { success = true, cleared = true }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+        Undo.RecordObject(camera.transform, "MCP Move Camera");
         
-        return tcs.Task;
-    }
-    
-    private static Task<string> PerformUndoOperation()
-    {
-        var tcs = new TaskCompletionSource<string>();
+        if (data.position != null)
+            camera.transform.position = new Vector3(data.position.x, data.position.y, data.position.z);
         
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                UnityEditor.Undo.PerformUndo();
-                tcs.SetResult(ToJson(new { success = true, undone = true }));
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
+        if (data.rotation != null)
+            camera.transform.rotation = Quaternion.Euler(data.rotation.x, data.rotation.y, data.rotation.z);
         
-        return tcs.Task;
+        if (data.fieldOfView.HasValue)
+            camera.fieldOfView = data.fieldOfView.Value;
+        
+        if (data.orthographic.HasValue)
+            camera.orthographic = data.orthographic.Value;
+        
+        if (data.orthographicSize.HasValue)
+            camera.orthographicSize = data.orthographicSize.Value;
+        
+        return J(
+            "success", true,
+            "position", new Vector3Data { x = camera.transform.position.x, y = camera.transform.position.y, z = camera.transform.position.z },
+            "rotation", new Vector3Data { x = camera.transform.eulerAngles.x, y = camera.transform.eulerAngles.y, z = camera.transform.eulerAngles.z },
+            "fieldOfView", camera.fieldOfView
+        );
     }
     
-    private static Task<string> EnterPlayMode()
+    private static string CameraLookAt(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                EditorApplication.isPlaying = true;
-                tcs.SetResult(ToJson(new { success = true, status = "playing" }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> ExitPlayMode()
-    {
-        var tcs = new TaskCompletionSource<string>();
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                EditorApplication.isPlaying = false;
-                tcs.SetResult(ToJson(new { success = true, status = "stopped" }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> PausePlayMode(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<PauseData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                EditorApplication.isPaused = data.paused;
-                tcs.SetResult(ToJson(new { success = true, paused = data.paused }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> GetPlayModeStatus()
-    {
-        var tcs = new TaskCompletionSource<string>();
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                tcs.SetResult(ToJson(new { 
-                    isPlaying = EditorApplication.isPlaying, 
-                    isPaused = EditorApplication.isPaused,
-                    isCompiling = EditorApplication.isCompiling 
-                }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> LoadScene(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<LoadSceneData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                var mode = data.mode == "Additive" ? OpenSceneMode.Additive : OpenSceneMode.Single;
-                var sceneNameOrPath = data.sceneName;
-                
-                // if it's not a full path, let's try to find it
-                if (!sceneNameOrPath.EndsWith(".unity"))
-                {
-                    string[] guids = AssetDatabase.FindAssets("t:Scene " + sceneNameOrPath);
-                    if (guids.Length > 0)
-                    {
-                        sceneNameOrPath = AssetDatabase.GUIDToAssetPath(guids[0]);
-                    }
-                }
-
-                EditorSceneManager.OpenScene(sceneNameOrPath, mode);
-                tcs.SetResult(ToJson(new { success = true, loaded = sceneNameOrPath }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> GetSceneList()
-    {
-        var tcs = new TaskCompletionSource<string>();
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                List<string> scenes = new List<string>();
-                foreach (UnityEditor.EditorBuildSettingsScene scene in UnityEditor.EditorBuildSettings.scenes)
-                {
-                    if (scene.enabled)
-                        scenes.Add(scene.path);
-                }
-                
-                string[] allScenes = AssetDatabase.FindAssets("t:Scene");
-                List<string> allScenePaths = new List<string>();
-                foreach(var guid in allScenes)
-                {
-                    allScenePaths.Add(AssetDatabase.GUIDToAssetPath(guid));
-                }
-
-                tcs.SetResult(ToJson(new { buildScenes = scenes, allScenes = allScenePaths }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> CompileScripts()
-    {
-        var tcs = new TaskCompletionSource<string>();
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                CompilationPipeline.RequestScriptCompilation();
-                tcs.SetResult(ToJson(new { success = true, status = "compiling" }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
+        var data = JsonUtility.FromJson<LookAtData>(body);
+        var camera = Camera.main;
+        if (camera == null) return J("error", "No main camera found");
+        
+        var target = FindObject(data.target, data.targetInstanceID);
+        if (target == null) return J("error", "Target not found: " + data.target);
+        
+        Undo.RecordObject(camera.transform, "MCP Camera LookAt");
+        camera.transform.LookAt(target.transform);
+        
+        return J(
+            "success", true,
+            "target", target.name,
+            "position", new Vector3Data { x = camera.transform.position.x, y = camera.transform.position.y, z = camera.transform.position.z },
+            "rotation", new Vector3Data { x = camera.transform.eulerAngles.x, y = camera.transform.eulerAngles.y, z = camera.transform.eulerAngles.z }
+        );
     }
     
-    private static Task<string> SetTimeScale(string body)
+    // ==================== LIGHTS ====================
+    
+    private static string CreateLight(string body)
     {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<TimeScaleData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                Time.timeScale = data.scale;
-                tcs.SetResult(ToJson(new { success = true, timeScale = data.scale }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
+        var data = JsonUtility.FromJson<LightData>(body);
+        
+        var lightObj = new GameObject();
+        lightObj.name = data.name ?? "Light";
+        
+        var light = lightObj.AddComponent<Light>();
+        
+        // Light type
+        light.type = data.type != null ? GetLightType(data.type) : LightType.Directional;
+        
+        // Position
+        if (data.position != null)
+            lightObj.transform.position = new Vector3(data.position.x, data.position.y, data.position.z);
+        
+        // Color
+        if (data.color != null)
+            light.color = new Color(data.color.r, data.color.g, data.color.b, data.color.a);
+        
+        // Intensity
+        if (data.intensity.HasValue)
+            light.intensity = data.intensity.Value;
+        
+        // Shadows
+        if (data.shadows.HasValue)
+            light.shadows = data.shadows.Value ? LightShadows.Soft : LightShadows.None;
+        
+        // Range (for point/spot lights)
+        if (data.range.HasValue)
+            light.range = data.range.Value;
+        
+        // Spot angle (for spot lights)
+        if (data.spotAngle.HasValue)
+            light.spotAngle = data.spotAngle.Value;
+        
+        Undo.RegisterCreatedObjectUndo(lightObj, "MCP Create Light");
+        
+        return J(
+            "success", true,
+            "name", lightObj.name,
+            "type", light.type.ToString(),
+            "instanceID", light.GetInstanceID()
+        );
     }
     
-    private static Task<string> SetCameraPosition(string body)
+    private static LightType GetLightType(string type)
     {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<CameraPosData>(body);
-        EnqueueOnMainThread(() =>
+        switch (type.ToLower())
         {
-            try
-            {
-                var cam = Camera.main;
-                if (cam == null) throw new Exception("No Main Camera found in scene");
-                
-                Undo.RecordObject(cam.transform, "MCP Set Camera Position");
-                if (data.position != null) cam.transform.position = data.position.ToVector3();
-                if (data.rotation != null) cam.transform.rotation = Quaternion.Euler(data.rotation.ToVector3());
-                
-                tcs.SetResult(ToJson(new { success = true }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
+            case "directional": return LightType.Directional;
+            case "point": return LightType.Point;
+            case "spot": return LightType.Spot;
+            case "area": return LightType.Area;
+            case "rectangle": return LightType.Rectangle;
+            default: return LightType.Directional;
+        }
     }
     
-    private static Task<string> SetCameraOrthographic(string body)
+    // ==================== PLAY MODE ====================
+    
+    private static string SetPlayMode(bool play)
     {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<CameraOrthoData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                var cam = Camera.main;
-                if (cam == null) throw new Exception("No Main Camera found in scene");
-                
-                Undo.RecordObject(cam, "MCP Set Camera Orthographic");
-                cam.orthographic = data.orthographic;
-                if (data.orthographic && data.size != 0)
-                {
-                    cam.orthographicSize = data.size;
-                }
-                
-                tcs.SetResult(ToJson(new { success = true }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
+        if (play && !EditorApplication.isPlaying)
+            EditorApplication.isPlaying = true;
+        else if (!play && EditorApplication.isPlaying)
+            EditorApplication.isPlaying = false;
+        
+        return J("success", true, "isPlaying", EditorApplication.isPlaying);
     }
     
-    private static Task<string> OpenWindow(string body)
+    private static string TogglePause()
     {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<WindowData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                System.Type type = null;
-                switch (data.windowName.ToLower())
-                {
-                    case "game": type = System.Type.GetType("UnityEditor.GameView,UnityEditor"); break;
-                    case "scene": type = typeof(SceneView); break;
-                    case "hierarchy": type = System.Type.GetType("UnityEditor.SceneHierarchyWindow,UnityEditor"); break;
-                    case "inspector": type = System.Type.GetType("UnityEditor.InspectorWindow,UnityEditor"); break;
-                    case "project": type = System.Type.GetType("UnityEditor.ProjectBrowser,UnityEditor"); break;
-                    case "console": type = System.Type.GetType("UnityEditor.ConsoleWindow,UnityEditor"); break;
-                }
-                
-                if (type != null)
-                {
-                    EditorWindow.GetWindow(type).Show();
-                    tcs.SetResult(ToJson(new { success = true, window = data.windowName }));
-                }
-                else
-                {
-                    throw new Exception($"Window '{data.windowName}' not supported.");
-                }
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
+        EditorApplication.isPaused = !EditorApplication.isPaused;
+        return J("success", true, "isPaused", EditorApplication.isPaused);
     }
     
-    private static Task<string> SendDebugLog(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<LogData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                if (data.type == "Warning") Debug.LogWarning(data.message);
-                else if (data.type == "Error") Debug.LogError(data.message);
-                else Debug.Log(data.message);
-                
-                tcs.SetResult(ToJson(new { success = true }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> GetComponentProperties(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<ComponentReqData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                GameObject obj = FindObject(data.objectName, data.instanceID);
-                if (obj == null) throw new Exception("Object not found.");
-                var type = GetTypeByName(data.componentType);
-                if (type == null) throw new Exception("Component type not found.");
-                var comp = obj.GetComponent(type);
-                if (comp == null) throw new Exception("Component not attached to object.");
-
-                var props = new Dictionary<string, object>();
-                foreach (var field in type.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
-                {
-                    try { props[field.Name] = field.GetValue(comp) ?? "null"; } catch {}
-                }
-                foreach (var prop in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
-                {
-                    if (prop.CanRead && prop.GetIndexParameters().Length == 0)
-                    {
-                        try { props[prop.Name] = prop.GetValue(comp, null) ?? "null"; } catch {}
-                    }
-                }
-
-                tcs.SetResult(ToJson(new { success = true, properties = props }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> SetComponentProperty(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<SetPropData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                GameObject obj = FindObject(data.objectName, data.instanceID);
-                if (obj == null) throw new Exception("Object not found.");
-                var type = GetTypeByName(data.componentType);
-                if (type == null) throw new Exception("Component type not found.");
-                var comp = obj.GetComponent(type);
-                if (comp == null) throw new Exception("Component not attached to object.");
-
-                Undo.RecordObject(comp, "MCP Set Property");
-
-                bool set = false;
-                var field = type.GetField(data.property, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (field != null)
-                {
-                    object val = Convert.ChangeType(data.value, field.FieldType);
-                    field.SetValue(comp, val);
-                    set = true;
-                }
-                if (!set)
-                {
-                    var prop = type.GetProperty(data.property, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                    if (prop != null && prop.CanWrite)
-                    {
-                        object val = Convert.ChangeType(data.value, prop.PropertyType);
-                        prop.SetValue(comp, val, null);
-                        set = true;
-                    }
-                }
-
-                if (!set) throw new Exception($"Property {data.property} not found or not writable.");
-                tcs.SetResult(ToJson(new { success = true }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> InvokeComponentMethod(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<InvokeMethodData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                GameObject obj = FindObject(data.objectName, data.instanceID);
-                if (obj == null) throw new Exception("Object not found.");
-                var type = GetTypeByName(data.componentType);
-                if (type == null) throw new Exception("Component type not found.");
-                var comp = obj.GetComponent(type);
-                if (comp == null) throw new Exception("Component not attached to object.");
-
-                var method = type.GetMethod(data.method, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (method == null) throw new Exception($"Method {data.method} not found.");
-
-                var parameters = method.GetParameters();
-                object[] args = new object[parameters.Length];
-                for (int i = 0; i < parameters.Length; i++)
-                {
-                    if (data.parameters != null && i < data.parameters.Length)
-                    {
-                        args[i] = Convert.ChangeType(data.parameters[i], parameters[i].ParameterType);
-                    }
-                    else if (parameters[i].IsOptional)
-                    {
-                        args[i] = parameters[i].DefaultValue;
-                    }
-                    else
-                    {
-                        throw new Exception($"Missing parameter for {parameters[i].Name}");
-                    }
-                }
-
-                object result = method.Invoke(comp, args);
-                tcs.SetResult(ToJson(new { success = true, result = result != null ? result.ToString() : "null" }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
-    private static Task<string> CreateScript(string body)
-    {
-        var tcs = new TaskCompletionSource<string>();
-        var data = JsonUtility.FromJson<ScriptData>(body);
-        EnqueueOnMainThread(() =>
-        {
-            try
-            {
-                string path = "Assets/Scripts";
-                if (!string.IsNullOrEmpty(data.path)) path = data.path;
-                if (!Directory.Exists(path)) Directory.CreateDirectory(path);
-
-                string filePath = $"{path}/{data.name}.cs";
-                string content = "";
-
-                if (data.template == "ScriptableObject")
-                {
-                    content = $"using UnityEngine;\n\n[CreateAssetMenu(fileName = \"{data.name}\", menuName = \"Data/{data.name}\")]\npublic class {data.name} : ScriptableObject\n{{\n    \n}}\n";
-                }
-                else if (data.template == "Editor")
-                {
-                    content = $"using UnityEditor;\nusing UnityEngine;\n\npublic class {data.name} : EditorWindow\n{{\n    [MenuItem(\"Tools/{data.name}\")]\n    public static void ShowWindow()\n    {{\n        GetWindow<{data.name}>(\"{data.name}\");\n    }}\n\n    private void OnGUI()\n    {{\n        \n    }}\n}}\n";
-                }
-                else // MonoBehaviour
-                {
-                    content = $"using UnityEngine;\n\npublic class {data.name} : MonoBehaviour\n{{\n    void Start()\n    {{\n        \n    }}\n\n    void Update()\n    {{\n        \n    }}\n}}\n";
-                }
-
-                if (!string.IsNullOrEmpty(data.@namespace))
-                {
-                    content = $"namespace {data.@namespace}\n{{\n{content.Replace("using", "//using").Replace("\n", "\n    ")}    \n}}\n";
-                    // Move usings to top
-                    content = "using UnityEngine;\nusing UnityEditor;\n" + content.Replace("//using UnityEngine;", "").Replace("//using UnityEditor;", "");
-                }
-
-                File.WriteAllText(filePath, content);
-                AssetDatabase.Refresh();
-
-                tcs.SetResult(ToJson(new { success = true, tempPath = filePath }));
-            }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        return tcs.Task;
-    }
-
     // ==================== HELPERS ====================
     
-    private static object SerializeGameObject(GameObject obj, bool includeComponents = false)
+    private static object SerializeGameObject(GameObject obj, bool shallow = false)
     {
-        var data = new Dictionary<string, object>
+        var result = new Dictionary<string, object>
         {
             ["name"] = obj.name,
             ["instanceID"] = obj.GetInstanceID(),
             ["active"] = obj.activeSelf,
             ["tag"] = obj.tag,
             ["layer"] = obj.layer,
-            ["position"] = new Vector3Data(obj.transform.position),
-            ["rotation"] = new Vector3Data(obj.transform.rotation.eulerAngles),
-            ["scale"] = new Vector3Data(obj.transform.localScale)
+            ["position"] = new Vector3Data { x = obj.transform.position.x, y = obj.transform.position.y, z = obj.transform.position.z },
+            ["rotation"] = new Vector3Data { x = obj.transform.eulerAngles.x, y = obj.transform.eulerAngles.y, z = obj.transform.eulerAngles.z },
+            ["scale"] = new Vector3Data { x = obj.transform.localScale.x, y = obj.transform.localScale.y, z = obj.transform.localScale.z }
         };
         
-        if (includeComponents)
+        if (!shallow)
         {
-            var components = new List<string>();
-            foreach (var c in obj.GetComponents<Component>())
-            {
-                if (c != null)
-                    components.Add(c.GetType().Name);
-            }
-            data["components"] = components;
+            var children = new List<object>();
+            foreach (Transform child in obj.transform)
+                children.Add(SerializeGameObject(child.gameObject, false));
+            result["childCount"] = children.Count;
+            result["children"] = children;
         }
         
-        // Include children
-        var children = new List<object>();
-        foreach (Transform child in obj.transform)
-        {
-            children.Add(SerializeGameObject(child.gameObject, includeComponents));
-        }
-        if (children.Count > 0)
-            data["children"] = children;
-        
-        return data;
+        return result;
     }
     
     private static GameObject FindObject(string name, int? instanceID)
     {
         if (instanceID.HasValue)
-        {
-            #pragma warning disable CS0618
-            return EditorUtility.InstanceIDToObject(instanceID.Value) as GameObject;
-            #pragma warning restore CS0618
-        }
-        
+            return (GameObject)EditorUtility.InstanceIDToObject(instanceID.Value);
         if (!string.IsNullOrEmpty(name))
-        {
             return GameObject.Find(name);
-        }
-        
         return null;
     }
     
@@ -1255,137 +653,95 @@ public static class UnityMcpBridge
     
     private static PrimitiveType GetPrimitiveType(string name)
     {
-        return name.ToLower() switch
+        switch (name.ToLower())
         {
-            "cube" => PrimitiveType.Cube,
-            "sphere" => PrimitiveType.Sphere,
-            "capsule" => PrimitiveType.Capsule,
-            "cylinder" => PrimitiveType.Cylinder,
-            "plane" => PrimitiveType.Plane,
-            "quad" => PrimitiveType.Quad,
-            _ => PrimitiveType.Cube
-        };
+            case "cube": return PrimitiveType.Cube;
+            case "sphere": return PrimitiveType.Sphere;
+            case "capsule": return PrimitiveType.Capsule;
+            case "cylinder": return PrimitiveType.Cylinder;
+            case "plane": return PrimitiveType.Plane;
+            case "quad": return PrimitiveType.Quad;
+            case "rope": return PrimitiveType.Capsule; // Fallback
+            default: return PrimitiveType.Cube;
+        }
     }
     
     private static System.Type GetTypeByName(string name)
     {
-        // Try common namespaces
         string[] namespaces = { "", "UnityEngine.", "UnityEngine.UI.", "UnityEditor." };
-        
         foreach (var ns in namespaces)
         {
             var type = System.Type.GetType(ns + name + ",UnityEngine");
             if (type != null) return type;
-            
             type = System.Type.GetType(ns + name + ",UnityEditor");
             if (type != null) return type;
         }
-        
-        // Search all assemblies
         foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
         {
             var type = assembly.GetType(name);
             if (type != null) return type;
         }
-        
         return null;
     }
     
-    private static string ExecuteCSharpCode(string code)
+    // JSON helper - simple key-value builder
+    private static string J(params object[] pairs)
     {
-        // For security, we don't allow arbitrary code execution
-        // Instead, we provide a whitelist of safe operations
-        // Full code execution would require Roslyn compiler
-        
-        if (code.Contains("GameObject.") || code.Contains("Transform.") || code.Contains("Vector3."))
+        var sb = new StringBuilder();
+        sb.Append("{");
+        for (int i = 0; i < pairs.Length; i += 2)
         {
-            // Safe Unity API calls
-            return "Code execution requires custom implementation. Use specific tools instead.";
+            if (i > 0) sb.Append(",");
+            var key = pairs[i].ToString();
+            var val = pairs[i + 1];
+            sb.Append("\"").Append(key).Append("\":");
+            sb.Append(ToJson(val));
         }
-        
-        return "Code execution not implemented for security. Available: unity_spawn_object, unity_add_component, etc.";
+        sb.Append("}");
+        return sb.ToString();
     }
     
     private static string ToJson(object obj)
     {
-        // Simple JSON serialization
-        if (obj is string str) return $"\"{EscapeJson(str)}\"";
+        if (obj == null) return "null";
+        if (obj is string s) return "\"" + EscapeJson(s) + "\"";
+        if (obj is bool b) return b ? "true" : "false";
         if (obj is int i) return i.ToString();
         if (obj is float f) return f.ToString("R");
         if (obj is double d) return d.ToString("R");
-        if (obj is bool b) return b.ToString().ToLower();
-        if (obj == null) return "null";
         
         if (obj is Dictionary<string, object> dict)
         {
             var pairs = new List<string>();
-            foreach (var kvp in dict)
-            {
-                pairs.Add($"\"{kvp.Key}\":{ToJson(kvp.Value)}");
-            }
+            foreach (var kv in dict) pairs.Add("\"" + kv.Key + "\":" + ToJson(kv.Value));
             return "{" + string.Join(",", pairs) + "}";
         }
         
         if (obj is List<object> list)
         {
-            var items = list.ConvertAll(ToJson);
+            var items = new List<string>();
+            foreach (var item in list) items.Add(ToJson(item));
             return "[" + string.Join(",", items) + "]";
         }
         
-        if (obj is List<string> strList)
-        {
-            return "[" + string.Join(",", strList.ConvertAll(s => $"\"{EscapeJson(s)}\"")) + "]";
-        }
+        if (obj is Vector3Data v)
+            return "{\"x\":" + v.x.ToString("R") + ",\"y\":" + v.y.ToString("R") + ",\"z\":" + v.z.ToString("R") + "}";
         
-        // Handle Vector3Data directly
-        if (obj is Vector3Data v3)
-        {
-            return $"{{\"x\":{v3.x},\"y\":{v3.y},\"z\":{v3.z}}}";
-        }
-        
-        // Fallback to Unity's JsonUtility for simple serializable objects
-        try
-        {
-            return JsonUtility.ToJson(obj);
-        }
-        catch
-        {
-            return "{}";
-        }
+        try { return JsonUtility.ToJson(obj); }
+        catch { return "\"" + EscapeJson(obj.ToString()) + "\""; }
     }
     
-    private static string EscapeJson(string str)
+    private static string EscapeJson(string s)
     {
-        if (string.IsNullOrEmpty(str)) return "";
-        return str
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\n", "\\n")
-            .Replace("\r", "\\r")
-            .Replace("\t", "\\t");
+        if (string.IsNullOrEmpty(s)) return "";
+        return s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
     }
     
     // ==================== DATA CLASSES ====================
     
-    [System.Serializable]
-    private class Vector3Data
-    {
-        public float x, y, z;
-        
-        public Vector3Data() { }
-        public Vector3Data(Vector3 v) { x = v.x; y = v.y; z = v.z; }
-        public Vector3 ToVector3() => new Vector3(x, y, z);
-    }
+    [System.Serializable] private class Vector3Data { public float x, y, z; }
     
-    [System.Serializable]
-    private class ColorData
-    {
-        public float r, g, b, a = 1f;
-        public Color ToColor() => new Color(r, g, b, a);
-    }
-    
-    [System.Serializable]
-    private class SpawnData
+    [System.Serializable] private class SpawnData
     {
         public string name;
         public string primitive;
@@ -1395,143 +751,82 @@ public static class UnityMcpBridge
         public string parent;
     }
     
-    [System.Serializable]
-    private class ModifyData
+    [System.Serializable] private class ModifyData
     {
         public string name;
-        public int instanceID;
+        public int? instanceID;
         public string newName;
         public bool? active;
         public Vector3Data position;
         public Vector3Data rotation;
         public Vector3Data scale;
-        public string tag;
-        public int? layer;
     }
     
-    [System.Serializable]
-    private class DeleteData
+    [System.Serializable] private class DeleteData
     {
         public string name;
-        public int instanceID;
+        public int? instanceID;
     }
     
-    [System.Serializable]
-    private class ComponentData
+    [System.Serializable] private class ComponentData
     {
         public string objectName;
-        public int instanceID;
+        public int? instanceID;
         public string componentType;
     }
     
-    [System.Serializable]
-    private class ExecuteData
-    {
-        public string code;
-    }
-    
-    [System.Serializable]
-    private class MaterialData
+    [System.Serializable] private class MaterialData
     {
         public string name;
         public string shader;
         public ColorData color;
     }
     
-    [System.Serializable]
-    private class PrefabData
+    [System.Serializable] private class SetMaterialData
     {
-        public string path;
+        public string objectName;
+        public int? instanceID;
+        public string name;
+        public string shader;
+        public ColorData color;
+    }
+    
+    [System.Serializable] private class WaterData
+    {
+        public string name;
         public Vector3Data position;
+        public Vector3Data scale;
     }
-
-    [System.Serializable]
-    private class FindAssetsData
+    
+    [System.Serializable] private class ColorData
     {
-        public string searchQuery;
-        public string typeFilter;
+        public float r, g, b, a = 1f;
     }
-
-    [System.Serializable]
-    private class PauseData
-    {
-        public bool paused;
-    }
-
-    [System.Serializable]
-    private class LoadSceneData
-    {
-        public string sceneName;
-        public string mode;
-    }
-
-    [System.Serializable]
-    private class TimeScaleData
-    {
-        public float scale;
-    }
-
-    [System.Serializable]
-    private class CameraPosData
+    
+    [System.Serializable] private class CameraData
     {
         public Vector3Data position;
         public Vector3Data rotation;
+        public float? fieldOfView;
+        public bool? orthographic;
+        public float? orthographicSize;
     }
-
-    [System.Serializable]
-    private class CameraOrthoData
+    
+    [System.Serializable] private class LookAtData
     {
-        public bool orthographic;
-        public float size;
+        public string target;
+        public int? targetInstanceID;
     }
-
-    [System.Serializable]
-    private class WindowData
-    {
-        public string windowName;
-    }
-
-    [System.Serializable]
-    private class LogData
-    {
-        public string message;
-        public string type;
-    }
-
-    [System.Serializable]
-    private class ComponentReqData
-    {
-        public string objectName;
-        public int instanceID;
-        public string componentType;
-    }
-
-    [System.Serializable]
-    private class SetPropData
-    {
-        public string objectName;
-        public int instanceID;
-        public string componentType;
-        public string property;
-        public string value;
-    }
-
-    [System.Serializable]
-    private class InvokeMethodData
-    {
-        public string objectName;
-        public int instanceID;
-        public string componentType;
-        public string method;
-        public string[] parameters;
-    }
-
-    [System.Serializable]
-    private class ScriptData
+    
+    [System.Serializable] private class LightData
     {
         public string name;
-        public string template;
-        public string @namespace;
-        public string path;
+        public string type;
+        public Vector3Data position;
+        public ColorData color;
+        public float? intensity;
+        public bool? shadows;
+        public float? range;
+        public float? spotAngle;
     }
 }
